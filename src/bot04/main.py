@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 
+from .bot.app import build_application
 from .config import load_config
 
 
@@ -38,7 +39,8 @@ def main() -> None:
     if not config.bot_token:
         raise SystemExit("BOT_TOKEN is required. Copy .env.example to .env and fill BOT_TOKEN.")
 
-    raise SystemExit("Telegram application wiring is not implemented yet. Continue with later tasks.")
+    application = build_application(config=config)
+    application.run_polling()
 
 
 if __name__ == "__main__":
