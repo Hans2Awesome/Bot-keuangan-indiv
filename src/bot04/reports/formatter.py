@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
+from bot04.database.transactions import Transaction
 from bot04.reports.aggregator import CategoryTotal, ReportSummary
 from bot04.reports.date_ranges import DateRange
 
@@ -66,6 +67,40 @@ def format_investment_report(summary: ReportSummary) -> str:
     )
 
 
+def format_transaction_log_report(
+    *,
+    transaction_type: str,
+    transactions: list[Transaction],
+    category_names: dict[int, str],
+    page: int,
+    total_pages: int,
+) -> str:
+    """Format paginated income or expense transaction history."""
+
+    if not transactions:
+        label = "pemasukan" if transaction_type == "income" else "pengeluaran"
+        return f"Belum ada riwayat {label}."
+
+    title = "💰 Riwayat Pemasukan" if transaction_type == "income" else "💸 Riwayat Pengeluaran"
+    lines = [
+        title,
+        f"Halaman {page} dari {total_pages}",
+        "Urutan: terbaru dulu",
+        "",
+    ]
+    for index, transaction in enumerate(transactions, start=1):
+        category_name = category_names.get(transaction.category_id or 0, "Lainnya")
+        lines.extend(
+            [
+                f"{index}. {_format_transaction_date(transaction.transaction_date)} — {_format_rupiah(transaction.amount)}",
+                f"   Kategori: {category_name}",
+                f"   Catatan: {transaction.note or '-'}",
+                "",
+            ]
+        )
+    return "\n".join(lines).rstrip()
+
+
 def _format_category_lines(categories: list[CategoryTotal]) -> str:
     if not categories:
         return "-"
@@ -86,6 +121,10 @@ def _format_date_range(date_range: DateRange) -> str:
 
 def _format_indonesian_date(value: date) -> str:
     return f"{value.day} {_MONTH_NAMES_ID[value.month]} {value.year}"
+
+
+def _format_transaction_date(value: str) -> str:
+    return _format_indonesian_date(date.fromisoformat(value))
 
 
 def _format_rupiah(amount: int) -> str:

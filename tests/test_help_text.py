@@ -26,3 +26,7 @@ def test_help_text_mentions_preview_confirmation_and_reports() -> None:
     assert "/week" in help_text
     assert "/month" in help_text
     assert "/menu" in help_text
+    assert "/riwayat_pemasukan" in help_text
+    assert "/riwayat_pengeluaran" in help_text
+    assert "10 data per halaman" in help_text
+    assert "terbaru dulu" in help_text

@@ -114,6 +114,49 @@ def list_transactions(
     return [_row_to_transaction(row) for row in rows]
 
 
+def list_transactions_by_type(
+    connection: sqlite3.Connection,
+    *,
+    user_id: int,
+    transaction_type: str,
+    limit: int,
+    offset: int,
+) -> list[Transaction]:
+    """List one user's transactions for one type in newest-first order."""
+
+    _configure_rows(connection)
+    rows = connection.execute(
+        """
+        SELECT id, user_id, type, category_id, amount, note, asset_name, transaction_date
+        FROM transactions
+        WHERE user_id = ? AND type = ?
+        ORDER BY transaction_date DESC, id DESC
+        LIMIT ? OFFSET ?
+        """,
+        (user_id, transaction_type, limit, offset),
+    ).fetchall()
+    return [_row_to_transaction(row) for row in rows]
+
+
+def count_transactions_by_type(
+    connection: sqlite3.Connection,
+    *,
+    user_id: int,
+    transaction_type: str,
+) -> int:
+    """Count one user's transactions for one type."""
+
+    row = connection.execute(
+        """
+        SELECT COUNT(*) AS total
+        FROM transactions
+        WHERE user_id = ? AND type = ?
+        """,
+        (user_id, transaction_type),
+    ).fetchone()
+    return int(row[0])
+
+
 def update_transaction(
     connection: sqlite3.Connection,
     *,

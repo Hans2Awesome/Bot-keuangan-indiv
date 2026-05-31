@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import sqlite3
 from collections import defaultdict
 from dataclasses import dataclass
@@ -9,7 +10,12 @@ from datetime import date
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from bot04.database.transactions import Transaction, list_transactions
+from bot04.database.transactions import (
+    Transaction,
+    count_transactions_by_type,
+    list_transactions,
+    list_transactions_by_type,
+)
 from bot04.domain import transaction_type_label
 from bot04.reports.aggregator import CategoryTotal, aggregate_transactions
 from bot04.reports.date_ranges import DateRange, month_range, today_range, week_range
@@ -17,6 +23,7 @@ from bot04.reports.formatter import (
     format_category_report,
     format_investment_report,
     format_period_report,
+    format_transaction_log_report,
 )
 
 CALLBACK_REPORT_TODAY = "report_today"
@@ -25,6 +32,10 @@ CALLBACK_REPORT_MONTH = "report_month"
 CALLBACK_REPORT_INCOME_CATEGORIES = "report_income_categories"
 CALLBACK_REPORT_EXPENSE_CATEGORIES = "report_expense_categories"
 CALLBACK_REPORT_INVESTMENT = "report_investment"
+LOG_PAGE_SIZE = 10
+CALLBACK_REPORT_INCOME_LOG_PREFIX = "report_income_log:"
+CALLBACK_REPORT_EXPENSE_LOG_PREFIX = "report_expense_log:"
+CALLBACK_REPORT_BACK_TO_MENU = "report_menu"
 
 
 @dataclass(frozen=True)
@@ -76,6 +87,16 @@ def build_report_menu_response() -> ReportMenuResponse:
                     callback_data=CALLBACK_REPORT_EXPENSE_CATEGORIES,
                 ),
             ],
+            [
+                InlineKeyboardButton(
+                    "💰 Riwayat Pemasukan",
+                    callback_data=f"{CALLBACK_REPORT_INCOME_LOG_PREFIX}1",
+                ),
+                InlineKeyboardButton(
+                    "💸 Riwayat Pengeluaran",
+                    callback_data=f"{CALLBACK_REPORT_EXPENSE_LOG_PREFIX}1",
+                ),
+            ],
             [InlineKeyboardButton("📈 Investasi", callback_data=CALLBACK_REPORT_INVESTMENT)],
         ]
     )
@@ -122,6 +143,77 @@ def build_investment_report_response(
         category_names=_category_names_for(connection, user_id=user_id),
     )
     return ReportMenuResponse(text=format_investment_report(summary), reply_markup=None)
+
+
+def build_transaction_log_response(
+    transaction_type: str,
+    *,
+    connection: sqlite3.Connection,
+    user_id: int,
+    page: int,
+) -> ReportMenuResponse:
+    """Build paginated income or expense transaction history for one user."""
+
+    total = count_transactions_by_type(connection, user_id=user_id, transaction_type=transaction_type)
+    total_pages = max(1, math.ceil(total / LOG_PAGE_SIZE))
+    normalized_page = min(max(page, 1), total_pages)
+    transactions = list_transactions_by_type(
+        connection,
+        user_id=user_id,
+        transaction_type=transaction_type,
+        limit=LOG_PAGE_SIZE,
+        offset=(normalized_page - 1) * LOG_PAGE_SIZE,
+    )
+    prefix = (
+        CALLBACK_REPORT_INCOME_LOG_PREFIX
+        if transaction_type == "income"
+        else CALLBACK_REPORT_EXPENSE_LOG_PREFIX
+    )
+    return ReportMenuResponse(
+        text=format_transaction_log_report(
+            transaction_type=transaction_type,
+            transactions=transactions,
+            category_names=_category_names_for(connection, user_id=user_id),
+            page=normalized_page,
+            total_pages=total_pages,
+        ),
+        reply_markup=_log_pagination_keyboard(prefix=prefix, page=normalized_page, total_pages=total_pages),
+    )
+
+
+def parse_report_page(callback_data: str, prefix: str) -> int:
+    """Parse one-based report page from callback data, defaulting to page 1."""
+
+    if not callback_data.startswith(prefix):
+        return 1
+    try:
+        return int(callback_data.removeprefix(prefix))
+    except ValueError:
+        return 1
+
+
+def _log_pagination_keyboard(
+    *,
+    prefix: str,
+    page: int,
+    total_pages: int,
+) -> InlineKeyboardMarkup:
+    """Build pagination controls for transaction history reports."""
+
+    rows: list[list[InlineKeyboardButton]] = []
+    navigation_row: list[InlineKeyboardButton] = []
+    if page > 1:
+        navigation_row.append(
+            InlineKeyboardButton("⬅️ Sebelumnya", callback_data=f"{prefix}{page - 1}")
+        )
+    if page < total_pages:
+        navigation_row.append(
+            InlineKeyboardButton("➡️ Berikutnya", callback_data=f"{prefix}{page + 1}")
+        )
+    if navigation_row:
+        rows.append(navigation_row)
+    rows.append([InlineKeyboardButton("🔙 Kembali ke Report", callback_data=CALLBACK_REPORT_BACK_TO_MENU)])
+    return InlineKeyboardMarkup(rows)
 
 
 def _period_title_and_range(period: str, current_date: date) -> tuple[str, DateRange]:

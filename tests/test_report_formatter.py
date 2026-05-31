@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from datetime import date
 
+from bot04.database.transactions import Transaction
+
 from bot04.reports.aggregator import CategoryTotal, ReportSummary
 from bot04.reports.date_ranges import DateRange
 from bot04.reports.formatter import (
     format_category_report,
     format_investment_report,
     format_period_report,
+    format_transaction_log_report,
 )
 
 
@@ -102,3 +105,92 @@ def test_format_investment_report_formats_investment_summary() -> None:
         "Total Investasi: Rp1.000.000\n"
         "Persentase dari Pemasukan: 20.00%"
     )
+
+
+def test_format_transaction_log_report_formats_income_history() -> None:
+    transactions = [
+        Transaction(
+            id=1,
+            user_id=1,
+            type="income",
+            category_id=10,
+            amount=5_000_000,
+            note="gaji bulanan",
+            asset_name=None,
+            transaction_date="2026-05-31",
+        ),
+        Transaction(
+            id=2,
+            user_id=1,
+            type="income",
+            category_id=11,
+            amount=150_000,
+            note=None,
+            asset_name=None,
+            transaction_date="2026-05-30",
+        ),
+    ]
+
+    report = format_transaction_log_report(
+        transaction_type="income",
+        transactions=transactions,
+        category_names={10: "Gaji"},
+        page=1,
+        total_pages=3,
+    )
+
+    assert report == (
+        "💰 Riwayat Pemasukan\n"
+        "Halaman 1 dari 3\n"
+        "Urutan: terbaru dulu\n\n"
+        "1. 31 Mei 2026 — Rp5.000.000\n"
+        "   Kategori: Gaji\n"
+        "   Catatan: gaji bulanan\n\n"
+        "2. 30 Mei 2026 — Rp150.000\n"
+        "   Kategori: Lainnya\n"
+        "   Catatan: -"
+    )
+
+
+def test_format_transaction_log_report_formats_expense_history_and_empty_state() -> None:
+    transaction = Transaction(
+        id=1,
+        user_id=1,
+        type="expense",
+        category_id=20,
+        amount=25_000,
+        note="makan siang",
+        asset_name=None,
+        transaction_date="2026-05-31",
+    )
+
+    report = format_transaction_log_report(
+        transaction_type="expense",
+        transactions=[transaction],
+        category_names={20: "Makan & Minum"},
+        page=2,
+        total_pages=2,
+    )
+
+    assert report == (
+        "💸 Riwayat Pengeluaran\n"
+        "Halaman 2 dari 2\n"
+        "Urutan: terbaru dulu\n\n"
+        "1. 31 Mei 2026 — Rp25.000\n"
+        "   Kategori: Makan & Minum\n"
+        "   Catatan: makan siang"
+    )
+    assert format_transaction_log_report(
+        transaction_type="income",
+        transactions=[],
+        category_names={},
+        page=1,
+        total_pages=1,
+    ) == "Belum ada riwayat pemasukan."
+    assert format_transaction_log_report(
+        transaction_type="expense",
+        transactions=[],
+        category_names={},
+        page=1,
+        total_pages=1,
+    ) == "Belum ada riwayat pengeluaran."

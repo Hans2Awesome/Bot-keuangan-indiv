@@ -9,9 +9,11 @@ from bot04.database.connection import connect
 from bot04.database.schema import init_db
 from bot04.database.transactions import (
     Transaction,
+    count_transactions_by_type,
     create_transaction,
     delete_transaction,
     list_transactions,
+    list_transactions_by_type,
     update_transaction,
 )
 from bot04.database.users import get_or_create_user
@@ -111,6 +113,101 @@ def test_list_transactions_filters_by_user_and_date_range() -> None:
     )
 
     assert transactions == [expected]
+
+
+def test_list_transactions_by_type_filters_user_type_orders_newest_and_paginates() -> None:
+    connection = setup_connection()
+    user_id, category_id = setup_user_with_categories(connection, 1)
+    other_user_id, other_category_id = setup_user_with_categories(connection, 2)
+
+    expected_page_one: list[Transaction] = []
+    expected_page_two: list[Transaction] = []
+    for index in range(12):
+        transaction = create_transaction(
+            connection,
+            user_id=user_id,
+            type="income",
+            category_id=None,
+            amount=100_000 + index,
+            note=f"income {index}",
+            asset_name=None,
+            transaction_date=f"2026-05-{index + 1:02d}",
+        )
+        if index >= 2:
+            expected_page_one.append(transaction)
+        else:
+            expected_page_two.append(transaction)
+
+    same_day_older = create_transaction(
+        connection,
+        user_id=user_id,
+        type="income",
+        category_id=None,
+        amount=50_000,
+        note="same day older id",
+        asset_name=None,
+        transaction_date="2026-05-12",
+    )
+    same_day_newer = create_transaction(
+        connection,
+        user_id=user_id,
+        type="income",
+        category_id=None,
+        amount=60_000,
+        note="same day newer id",
+        asset_name=None,
+        transaction_date="2026-05-12",
+    )
+    create_transaction(
+        connection,
+        user_id=user_id,
+        type="expense",
+        category_id=category_id,
+        amount=25_000,
+        note="wrong type",
+        asset_name=None,
+        transaction_date="2026-05-13",
+    )
+    create_transaction(
+        connection,
+        user_id=user_id,
+        type="investment",
+        category_id=None,
+        amount=75_000,
+        note="wrong type investment",
+        asset_name="BTC",
+        transaction_date="2026-05-14",
+    )
+    create_transaction(
+        connection,
+        user_id=other_user_id,
+        type="income",
+        category_id=other_category_id,
+        amount=999_000,
+        note="other user",
+        asset_name=None,
+        transaction_date="2026-05-15",
+    )
+
+    page_one = list_transactions_by_type(
+        connection,
+        user_id=user_id,
+        transaction_type="income",
+        limit=10,
+        offset=0,
+    )
+    page_two = list_transactions_by_type(
+        connection,
+        user_id=user_id,
+        transaction_type="income",
+        limit=10,
+        offset=10,
+    )
+    total = count_transactions_by_type(connection, user_id=user_id, transaction_type="income")
+
+    assert page_one == [same_day_newer, same_day_older, *reversed(expected_page_one[-8:])]
+    assert page_two == list(reversed(expected_page_two + expected_page_one[:2]))
+    assert total == 14
 
 
 def test_update_transaction_changes_only_owned_transaction_fields() -> None:

@@ -168,6 +168,8 @@ Command laporan:
 - `/week`: laporan minggu berjalan.
 - `/month`: laporan bulan berjalan.
 - `/report`: menu pilihan laporan.
+- `/riwayat_pemasukan`: melihat riwayat pemasukan, 10 data per halaman, terbaru dulu.
+- `/riwayat_pengeluaran`: melihat riwayat pengeluaran, 10 data per halaman, terbaru dulu.
 
 ## Struktur Project
 

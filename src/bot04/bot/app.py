@@ -6,7 +6,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import date
 
-from telegram import Update
+from telegram import BotCommand, Update
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -47,8 +47,11 @@ from bot04.bot.handlers_quick_input import (
     handle_quick_input_text,
 )
 from bot04.bot.handlers_reports import (
+    CALLBACK_REPORT_BACK_TO_MENU,
     CALLBACK_REPORT_EXPENSE_CATEGORIES,
+    CALLBACK_REPORT_EXPENSE_LOG_PREFIX,
     CALLBACK_REPORT_INCOME_CATEGORIES,
+    CALLBACK_REPORT_INCOME_LOG_PREFIX,
     CALLBACK_REPORT_INVESTMENT,
     CALLBACK_REPORT_MONTH,
     CALLBACK_REPORT_TODAY,
@@ -57,6 +60,8 @@ from bot04.bot.handlers_reports import (
     build_investment_report_response,
     build_period_report_response,
     build_report_menu_response,
+    build_transaction_log_response,
+    parse_report_page,
 )
 from bot04.bot.handlers_start import build_start_response, register_start_user
 from bot04.bot.handlers_transactions import (
@@ -72,6 +77,18 @@ from bot04.config import Config
 from bot04.database.connection import connect
 from bot04.database.schema import init_db
 from bot04.services.pending_store import PendingConfirmationStore
+
+BOT_COMMANDS = [
+    BotCommand("start", "🚀 Jalankan Bot"),
+    BotCommand("menu", "📋 Menu Utama"),
+    BotCommand("help", "💡 Bantuan Input Cepat"),
+    BotCommand("today", "📅 Laporan Hari Ini"),
+    BotCommand("week", "🗓 Laporan Minggu Ini"),
+    BotCommand("month", "📆 Laporan Bulan Ini"),
+    BotCommand("report", "📊 Menu Laporan"),
+    BotCommand("riwayat_pemasukan", "💰 Riwayat Pemasukan"),
+    BotCommand("riwayat_pengeluaran", "💸 Riwayat Pengeluaran"),
+]
 
 
 @dataclass(frozen=True)
@@ -97,7 +114,14 @@ def build_application(
     for handler in build_handlers(dependencies):
         application.add_handler(handler)
 
+    application.post_init = _set_bot_commands
     return application
+
+
+async def _set_bot_commands(application: Application) -> None:
+    """Publish Bot04 commands to Telegram's command menu."""
+
+    await application.bot.set_my_commands(BOT_COMMANDS)
 
 
 def build_dependencies(database_path: str) -> BotDependencies:
@@ -124,6 +148,8 @@ def build_handlers(dependencies: BotDependencies) -> list[BaseHandler]:
         CommandHandler("week", _week_command),
         CommandHandler("month", _month_command),
         CommandHandler("report", _report_command),
+        CommandHandler("riwayat_pemasukan", _riwayat_pemasukan_command),
+        CommandHandler("riwayat_pengeluaran", _riwayat_pengeluaran_command),
         CommandHandler("help", _help_command),
         CallbackQueryHandler(
             _quick_confirm_callback,
@@ -163,7 +189,8 @@ def build_handlers(dependencies: BotDependencies) -> list[BaseHandler]:
             pattern=(
                 f"^({CALLBACK_REPORT_TODAY}|{CALLBACK_REPORT_WEEK}|{CALLBACK_REPORT_MONTH}|"
                 f"{CALLBACK_REPORT_INCOME_CATEGORIES}|{CALLBACK_REPORT_EXPENSE_CATEGORIES}|"
-                f"{CALLBACK_REPORT_INVESTMENT})$"
+                f"{CALLBACK_REPORT_INVESTMENT}|{CALLBACK_REPORT_BACK_TO_MENU}|"
+                f"{CALLBACK_REPORT_INCOME_LOG_PREFIX}\\d+|{CALLBACK_REPORT_EXPENSE_LOG_PREFIX}\\d+)$"
             ),
         ),
         MessageHandler(filters.TEXT & ~filters.COMMAND, _quick_input_message),
@@ -396,6 +423,14 @@ async def _report_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await update.effective_message.reply_text(response.text, reply_markup=response.reply_markup)
 
 
+async def _riwayat_pemasukan_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _send_transaction_log(update, context, "income", page=1)
+
+
+async def _riwayat_pengeluaran_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _send_transaction_log(update, context, "expense", page=1)
+
+
 async def _help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_message is None:
         return
@@ -437,6 +472,22 @@ async def _report_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         response = build_category_report_response(
             "expense", connection=_connection(context), user_id=db_user.id, current_date=today
         )
+    elif query.data == CALLBACK_REPORT_BACK_TO_MENU:
+        response = build_report_menu_response()
+    elif query.data.startswith(CALLBACK_REPORT_INCOME_LOG_PREFIX):
+        response = build_transaction_log_response(
+            "income",
+            connection=_connection(context),
+            user_id=db_user.id,
+            page=parse_report_page(query.data, CALLBACK_REPORT_INCOME_LOG_PREFIX),
+        )
+    elif query.data.startswith(CALLBACK_REPORT_EXPENSE_LOG_PREFIX):
+        response = build_transaction_log_response(
+            "expense",
+            connection=_connection(context),
+            user_id=db_user.id,
+            page=parse_report_page(query.data, CALLBACK_REPORT_EXPENSE_LOG_PREFIX),
+        )
     else:
         response = build_investment_report_response(
             connection=_connection(context), user_id=db_user.id, current_date=today
@@ -465,6 +516,32 @@ async def _send_period_report(
         connection=_connection(context),
         user_id=db_user.id,
         current_date=date.today(),
+    )
+    await update.effective_message.reply_text(response.text, reply_markup=response.reply_markup)
+
+
+async def _send_transaction_log(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    transaction_type: str,
+    *,
+    page: int,
+) -> None:
+    user = update.effective_user
+    if user is None or update.effective_message is None:
+        return
+
+    db_user = register_start_user(
+        _connection(context),
+        telegram_user_id=user.id,
+        first_name=user.first_name,
+        username=user.username,
+    )
+    response = build_transaction_log_response(
+        transaction_type,
+        connection=_connection(context),
+        user_id=db_user.id,
+        page=page,
     )
     await update.effective_message.reply_text(response.text, reply_markup=response.reply_markup)
 

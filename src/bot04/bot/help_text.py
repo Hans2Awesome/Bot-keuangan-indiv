@@ -24,5 +24,7 @@ def build_help_text() -> str:
             "- /today untuk laporan hari ini",
             "- /week untuk laporan minggu ini",
             "- /month untuk laporan bulan ini",
+            "- /riwayat_pemasukan untuk melihat riwayat pemasukan, 10 data per halaman, terbaru dulu",
+            "- /riwayat_pengeluaran untuk melihat riwayat pengeluaran, 10 data per halaman, terbaru dulu",
         ]
     )
